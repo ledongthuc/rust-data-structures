@@ -1,6 +1,6 @@
-use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use crate::errors::{OutOfIndex, RunOutOfCapacity};
 use core::ptr;
-use crate::errors::{ OutOfIndex, RunOutOfCapacity };
+use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 
 pub struct StaticHeapArray<T> {
     mem_layout: Layout,
@@ -24,36 +24,42 @@ impl<T> StaticHeapArray<T> {
         }
     }
 
-    pub fn from<const SIZE: usize>(arr: [T; SIZE]) -> StaticHeapArray<T>{
+    pub fn from<const SIZE: usize>(arr: [T; SIZE]) -> StaticHeapArray<T> {
         let mut r = StaticHeapArray::new(SIZE);
         for item in arr {
-            r.push(item).unwrap();
+            r.append(item).unwrap();
         }
         r
     }
 
-    pub fn push(&mut self, item: T) -> Result<(), RunOutOfCapacity> {
-        if self.size == self.cap {
-            return Err(RunOutOfCapacity{});
+    pub fn append(&mut self, item: T) -> Result<(), RunOutOfCapacity> {
+        if self.is_full() {
+            return Err(RunOutOfCapacity {});
         }
-        unsafe{ ptr::write(self.pointer.add(self.size), item) }
+        unsafe { ptr::write(self.pointer.add(self.size), item) }
         self.size += 1;
         Ok(())
     }
 
-    pub fn get(&mut self, index: usize) -> Result<T, OutOfIndex> {
-        if index >= self.size {
-            return Err(OutOfIndex{})
+    pub fn is_full(&self) -> bool {
+        self.size == self.cap
+    }
+
+    pub fn index_of(&self, index: usize) -> Result<T, OutOfIndex> {
+        if self.is_out_of_index(index) {
+            return Err(OutOfIndex {});
         }
-        unsafe{
-            Ok(ptr::read(self.pointer.add(index)))
-        }
+        unsafe { Ok(ptr::read(self.pointer.add(index))) }
+    }
+
+    pub fn is_out_of_index(&self, index: usize) -> bool {
+        index >= self.size
     }
 }
 
 impl<T> Drop for StaticHeapArray<T> {
     fn drop(&mut self) {
-        unsafe{ dealloc(self.pointer as *mut u8, self.mem_layout) }
+        unsafe { dealloc(self.pointer as *mut u8, self.mem_layout) }
     }
 }
 
@@ -66,32 +72,36 @@ mod tests {
     fn test_static_heap_array_new() {
         let mut arr: StaticHeapArray<i32> = StaticHeapArray::new(5);
 
-        arr.push(1).unwrap();
-        arr.push(2).unwrap();
-        arr.push(3).unwrap();
-        arr.push(4).unwrap();
-        arr.push(5).unwrap();
-        assert_eq!(RunOutOfCapacity{}, arr.push(6).unwrap_err());
+        arr.append(1).unwrap();
+        arr.append(2).unwrap();
+        arr.append(3).unwrap();
+        arr.append(4).unwrap();
+        arr.append(5).unwrap();
+        assert!(arr.is_full());
+        assert_eq!(RunOutOfCapacity {}, arr.append(6).unwrap_err());
 
-        assert_eq!(1, arr.get(0).unwrap());
-        assert_eq!(2, arr.get(1).unwrap());
-        assert_eq!(3, arr.get(2).unwrap());
-        assert_eq!(4, arr.get(3).unwrap());
-        assert_eq!(5, arr.get(4).unwrap());
-        assert_eq!(OutOfIndex{}, arr.get(6).unwrap_err());
+        assert_eq!(1, arr.index_of(0).unwrap());
+        assert_eq!(2, arr.index_of(1).unwrap());
+        assert_eq!(3, arr.index_of(2).unwrap());
+        assert_eq!(4, arr.index_of(3).unwrap());
+        assert_eq!(5, arr.index_of(4).unwrap());
+        assert!(arr.is_out_of_index(6));
+        assert_eq!(OutOfIndex {}, arr.index_of(6).unwrap_err());
     }
 
     #[test]
     fn test_static_heap_array_from_initialed_array() {
-        let mut arr: StaticHeapArray<i32> = StaticHeapArray::from([1,2,3,4,5]);
+        let mut arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
 
-        assert_eq!(RunOutOfCapacity{}, arr.push(6).unwrap_err());
+        assert!(arr.is_full());
+        assert_eq!(RunOutOfCapacity {}, arr.append(6).unwrap_err());
 
-        assert_eq!(1, arr.get(0).unwrap());
-        assert_eq!(2, arr.get(1).unwrap());
-        assert_eq!(3, arr.get(2).unwrap());
-        assert_eq!(4, arr.get(3).unwrap());
-        assert_eq!(5, arr.get(4).unwrap());
-        assert_eq!(OutOfIndex{}, arr.get(6).unwrap_err());
+        assert_eq!(1, arr.index_of(0).unwrap());
+        assert_eq!(2, arr.index_of(1).unwrap());
+        assert_eq!(3, arr.index_of(2).unwrap());
+        assert_eq!(4, arr.index_of(3).unwrap());
+        assert_eq!(5, arr.index_of(4).unwrap());
+        assert!(arr.is_out_of_index(6));
+        assert_eq!(OutOfIndex {}, arr.index_of(6).unwrap_err());
     }
 }
