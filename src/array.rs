@@ -1,6 +1,7 @@
 use crate::errors::{OutOfIndex, RunOutOfCapacity};
 use core::ptr;
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use core::marker::PhantomData;
 
 pub struct StaticHeapArray<T> {
     mem_layout: Layout,
@@ -41,8 +42,9 @@ impl<T> StaticHeapArray<T> {
         Ok(())
     }
 
+    #[inline]
     pub fn is_full(&self) -> bool {
-        self.size == self.cap
+        self.get_size() == self.get_cap()
     }
 
     pub fn index_of(&self, index: usize) -> Result<T, OutOfIndex> {
@@ -52,14 +54,57 @@ impl<T> StaticHeapArray<T> {
         unsafe { Ok(ptr::read(self.pointer.add(index))) }
     }
 
+    #[inline]
     pub fn is_out_of_index(&self, index: usize) -> bool {
-        index >= self.size
+        index >= self.get_size()
+    }
+
+    #[inline]
+    pub fn get_cap(&self) -> usize {
+        self.cap
+    }
+
+    #[inline]
+    pub fn get_size(&self) -> usize {
+        self.size
+    }
+
+    #[inline]
+    pub fn iter(&self) -> StaticHeapArrayIter<'_, T> {
+        StaticHeapArrayIter::new(self)
     }
 }
 
 impl<T> Drop for StaticHeapArray<T> {
     fn drop(&mut self) {
         unsafe { dealloc(self.pointer as *mut u8, self.mem_layout) }
+    }
+}
+
+pub struct StaticHeapArrayIter<'a, T> {
+    s: &'a StaticHeapArray<T>,
+    reading_index: usize,
+    _marker: PhantomData<&'a T>,
+}
+
+impl<'a, T> StaticHeapArrayIter<'a, T> {
+    pub fn new(array: &'a StaticHeapArray<T>) -> Self {
+        Self {
+            s: array,
+            reading_index: 0,
+            _marker: PhantomData,
+        }
+    }
+}
+impl<'a, T> Iterator for StaticHeapArrayIter<'a, T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.s.is_out_of_index(self.reading_index) {
+            return None;
+        }
+        let result = self.s.index_of(self.reading_index);
+        self.reading_index += 1;
+        return result.ok();
     }
 }
 
@@ -103,5 +148,23 @@ mod tests {
         assert_eq!(5, arr.index_of(4).unwrap());
         assert!(arr.is_out_of_index(6));
         assert_eq!(OutOfIndex {}, arr.index_of(6).unwrap_err());
+    }
+
+    #[test]
+    fn test_static_heap_array_iter() {
+        let arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
+
+        let mut iter = arr.iter();
+        for i in 0..5 {
+            assert_eq!(i + 1, iter.next().unwrap());
+        }
+        assert!(iter.next().is_none());
+
+        let mut i: i32 = 0;
+        for item in arr.iter() {
+            assert_eq!(i + 1, item);
+            i += 1;
+        }
+        assert!(iter.next().is_none());
     }
 }
