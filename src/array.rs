@@ -1,6 +1,6 @@
-use crate::errors::{OutOfIndex, RunOutOfCapacity};
+use crate::errors::RunOutOfCapacity;
 use core::ptr;
-use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use std::{alloc::{alloc, dealloc, handle_alloc_error, Layout}, ops::Index};
 use core::marker::PhantomData;
 
 pub struct StaticHeapArray<T> {
@@ -28,12 +28,12 @@ impl<T> StaticHeapArray<T> {
     pub fn from<const SIZE: usize>(arr: [T; SIZE]) -> StaticHeapArray<T> {
         let mut r = StaticHeapArray::new(SIZE);
         for item in arr {
-            r.append(item).unwrap();
+            r.push(item).unwrap();
         }
         r
     }
 
-    pub fn append(&mut self, item: T) -> Result<(), RunOutOfCapacity> {
+    pub fn push(&mut self, item: T) -> Result<(), RunOutOfCapacity> {
         if self.is_full() {
             return Err(RunOutOfCapacity {});
         }
@@ -47,11 +47,25 @@ impl<T> StaticHeapArray<T> {
         self.get_size() == self.get_cap()
     }
 
-    pub fn index_of(&self, index: usize) -> Result<T, OutOfIndex> {
+    pub fn get_ref(&self, index: usize) -> Option<&T> {
         if self.is_out_of_index(index) {
-            return Err(OutOfIndex {});
+            return None;
         }
-        unsafe { Ok(ptr::read(self.pointer.add(index))) }
+        Some(unsafe { &*self.pointer.add(index) as &T })
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if self.is_out_of_index(index) {
+            return None;
+        }
+        Some(unsafe { &mut *self.pointer.add(index) as &mut T })
+    }
+
+    pub fn get(&self, index: usize) -> Option<T> {
+        if self.is_out_of_index(index) {
+            return None;
+        }
+        Some(unsafe { ptr::read(self.pointer.add(index)) })
     }
 
     #[inline]
@@ -81,6 +95,15 @@ impl<T> Drop for StaticHeapArray<T> {
     }
 }
 
+impl<T> Index<usize> for StaticHeapArray<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, idx: usize) -> &Self::Output {
+        self.get_ref(idx).unwrap()
+    }
+}
+
 pub struct StaticHeapArrayIter<'a, T> {
     s: &'a StaticHeapArray<T>,
     reading_index: usize,
@@ -102,9 +125,9 @@ impl<'a, T> Iterator for StaticHeapArrayIter<'a, T> {
         if self.s.is_out_of_index(self.reading_index) {
             return None;
         }
-        let result = self.s.index_of(self.reading_index);
+        let result = self.s.get(self.reading_index);
         self.reading_index += 1;
-        return result.ok();
+        result
     }
 }
 
@@ -117,21 +140,28 @@ mod tests {
     fn test_static_heap_array_new() {
         let mut arr: StaticHeapArray<i32> = StaticHeapArray::new(5);
 
-        arr.append(1).unwrap();
-        arr.append(2).unwrap();
-        arr.append(3).unwrap();
-        arr.append(4).unwrap();
-        arr.append(5).unwrap();
+        arr.push(1).unwrap();
+        arr.push(2).unwrap();
+        arr.push(3).unwrap();
+        arr.push(4).unwrap();
+        arr.push(5).unwrap();
         assert!(arr.is_full());
-        assert_eq!(RunOutOfCapacity {}, arr.append(6).unwrap_err());
+        assert_eq!(RunOutOfCapacity {}, arr.push(6).unwrap_err());
 
-        assert_eq!(1, arr.index_of(0).unwrap());
-        assert_eq!(2, arr.index_of(1).unwrap());
-        assert_eq!(3, arr.index_of(2).unwrap());
-        assert_eq!(4, arr.index_of(3).unwrap());
-        assert_eq!(5, arr.index_of(4).unwrap());
+        assert_eq!(1, arr.get(0).unwrap());
+        assert_eq!(2, arr.get(1).unwrap());
+        assert_eq!(3, arr.get(2).unwrap());
+        assert_eq!(4, arr.get(3).unwrap());
+        assert_eq!(5, arr.get(4).unwrap());
         assert!(arr.is_out_of_index(6));
-        assert_eq!(OutOfIndex {}, arr.index_of(6).unwrap_err());
+        assert_eq!(None, arr.get(6));
+
+        assert_eq!(&1, arr.get_ref(0).unwrap());
+        assert_eq!(&2, arr.get_ref(1).unwrap());
+        assert_eq!(&3, arr.get_ref(2).unwrap());
+        assert_eq!(&4, arr.get_ref(3).unwrap());
+        assert_eq!(&5, arr.get_ref(4).unwrap());
+        assert_eq!(None, arr.get(6));
     }
 
     #[test]
@@ -139,15 +169,37 @@ mod tests {
         let mut arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
 
         assert!(arr.is_full());
-        assert_eq!(RunOutOfCapacity {}, arr.append(6).unwrap_err());
+        assert_eq!(RunOutOfCapacity {}, arr.push(6).unwrap_err());
 
-        assert_eq!(1, arr.index_of(0).unwrap());
-        assert_eq!(2, arr.index_of(1).unwrap());
-        assert_eq!(3, arr.index_of(2).unwrap());
-        assert_eq!(4, arr.index_of(3).unwrap());
-        assert_eq!(5, arr.index_of(4).unwrap());
+        assert_eq!(1, arr.get(0).unwrap());
+        assert_eq!(2, arr.get(1).unwrap());
+        assert_eq!(3, arr.get(2).unwrap());
+        assert_eq!(4, arr.get(3).unwrap());
+        assert_eq!(5, arr.get(4).unwrap());
         assert!(arr.is_out_of_index(6));
-        assert_eq!(OutOfIndex {}, arr.index_of(6).unwrap_err());
+        assert_eq!(None, arr.get(6));
+    }
+
+    #[test]
+    fn test_static_heap_array_get_mut() {
+        let mut arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
+
+        assert_eq!(3, arr.get(2).unwrap());
+
+        let item3 = arr.get_mut(2).unwrap();
+        *item3 = 99;
+        assert_eq!(99, arr.get(2).unwrap());
+    }
+
+    #[test]
+    fn test_static_heap_array_index_access() {
+        let arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
+
+        assert_eq!(1, arr[0]);
+        assert_eq!(2, arr[1]);
+        assert_eq!(3, arr[2]);
+        assert_eq!(4, arr[3]);
+        assert_eq!(5, arr[4]);
     }
 
     #[test]
