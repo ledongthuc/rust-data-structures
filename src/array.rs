@@ -48,24 +48,24 @@ impl<T> StaticHeapArray<T> {
     }
 
     pub fn get_ref(&self, index: usize) -> Option<&T> {
-        if self.is_out_of_index(index) {
-            return None;
+        match self.is_out_of_index(index) {
+            true => None,
+            false => Some(unsafe { &*self.pointer.add(index) as &T }),
         }
-        Some(unsafe { &*self.pointer.add(index) as &T })
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        if self.is_out_of_index(index) {
-            return None;
+        match self.is_out_of_index(index) {
+            true => None,
+            false => Some(unsafe { &mut *self.pointer.add(index) as &mut T }),
         }
-        Some(unsafe { &mut *self.pointer.add(index) as &mut T })
     }
 
     pub fn get(&self, index: usize) -> Option<T> {
-        if self.is_out_of_index(index) {
-            return None;
+        match self.is_out_of_index(index) {
+            true => None,
+            false => Some(unsafe { ptr::read(self.pointer.add(index)) }),
         }
-        Some(unsafe { ptr::read(self.pointer.add(index)) })
     }
 
     #[inline]
