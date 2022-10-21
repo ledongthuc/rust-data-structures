@@ -47,7 +47,7 @@ impl<T> StaticHeapArray<T> {
         self.get_size() == self.get_cap()
     }
 
-    pub fn get_ref(&self, index: usize) -> Option<&T> {
+    pub fn get(&self, index: usize) -> Option<&T> {
         match self.is_out_of_index(index) {
             true => None,
             false => Some(unsafe { &*self.pointer.add(index) as &T }),
@@ -58,13 +58,6 @@ impl<T> StaticHeapArray<T> {
         match self.is_out_of_index(index) {
             true => None,
             false => Some(unsafe { &mut *self.pointer.add(index) as &mut T }),
-        }
-    }
-
-    pub fn get(&self, index: usize) -> Option<T> {
-        match self.is_out_of_index(index) {
-            true => None,
-            false => Some(unsafe { ptr::read(self.pointer.add(index)) }),
         }
     }
 
@@ -89,6 +82,15 @@ impl<T> StaticHeapArray<T> {
     }
 }
 
+impl<T:Clone> StaticHeapArray<T> {
+    pub fn get_cloned(&self, index: usize) -> Option<T> {
+        match self.is_out_of_index(index) {
+            true => None,
+            false => Some(unsafe { ptr::read(self.pointer.add(index)) }.clone()),
+        }
+    }
+}
+
 impl<T> Drop for StaticHeapArray<T> {
     fn drop(&mut self) {
         unsafe { dealloc(self.pointer as *mut u8, self.mem_layout) }
@@ -100,7 +102,7 @@ impl<T> Index<usize> for StaticHeapArray<T> {
 
     #[inline]
     fn index(&self, idx: usize) -> &Self::Output {
-        self.get_ref(idx).unwrap()
+        self.get(idx).unwrap()
     }
 }
 
@@ -119,8 +121,8 @@ impl<'a, T> StaticHeapArrayIter<'a, T> {
         }
     }
 }
-impl<'a, T> Iterator for StaticHeapArrayIter<'a, T> {
-    type Item = T;
+impl<'a, T: 'a> Iterator for StaticHeapArrayIter<'a, T> {
+    type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
         if self.s.is_out_of_index(self.reading_index) {
             return None;
@@ -148,19 +150,11 @@ mod tests {
         assert!(arr.is_full());
         assert_eq!(RunOutOfCapacity {}, arr.push(6).unwrap_err());
 
-        assert_eq!(1, arr.get(0).unwrap());
-        assert_eq!(2, arr.get(1).unwrap());
-        assert_eq!(3, arr.get(2).unwrap());
-        assert_eq!(4, arr.get(3).unwrap());
-        assert_eq!(5, arr.get(4).unwrap());
-        assert!(arr.is_out_of_index(6));
-        assert_eq!(None, arr.get(6));
-
-        assert_eq!(&1, arr.get_ref(0).unwrap());
-        assert_eq!(&2, arr.get_ref(1).unwrap());
-        assert_eq!(&3, arr.get_ref(2).unwrap());
-        assert_eq!(&4, arr.get_ref(3).unwrap());
-        assert_eq!(&5, arr.get_ref(4).unwrap());
+        assert_eq!(&1, arr.get(0).unwrap());
+        assert_eq!(&2, arr.get(1).unwrap());
+        assert_eq!(&3, arr.get(2).unwrap());
+        assert_eq!(&4, arr.get(3).unwrap());
+        assert_eq!(&5, arr.get(4).unwrap());
         assert_eq!(None, arr.get(6));
     }
 
@@ -171,11 +165,11 @@ mod tests {
         assert!(arr.is_full());
         assert_eq!(RunOutOfCapacity {}, arr.push(6).unwrap_err());
 
-        assert_eq!(1, arr.get(0).unwrap());
-        assert_eq!(2, arr.get(1).unwrap());
-        assert_eq!(3, arr.get(2).unwrap());
-        assert_eq!(4, arr.get(3).unwrap());
-        assert_eq!(5, arr.get(4).unwrap());
+        assert_eq!(&1, arr.get(0).unwrap());
+        assert_eq!(&2, arr.get(1).unwrap());
+        assert_eq!(&3, arr.get(2).unwrap());
+        assert_eq!(&4, arr.get(3).unwrap());
+        assert_eq!(&5, arr.get(4).unwrap());
         assert!(arr.is_out_of_index(6));
         assert_eq!(None, arr.get(6));
     }
@@ -184,11 +178,22 @@ mod tests {
     fn test_static_heap_array_get_mut() {
         let mut arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
 
-        assert_eq!(3, arr.get(2).unwrap());
+        assert_eq!(&3, arr.get(2).unwrap());
 
         let item3 = arr.get_mut(2).unwrap();
         *item3 = 99;
-        assert_eq!(99, arr.get(2).unwrap());
+        assert_eq!(&99, arr.get(2).unwrap());
+    }
+
+    #[test]
+    fn test_static_heap_array_get_cloned() {
+        let arr: StaticHeapArray<i32> = StaticHeapArray::from([1, 2, 3, 4, 5]);
+
+        assert_eq!(1, arr.get_cloned(0).unwrap());
+        assert_eq!(2, arr.get_cloned(1).unwrap());
+        assert_eq!(3, arr.get_cloned(2).unwrap());
+        assert_eq!(4, arr.get_cloned(3).unwrap());
+        assert_eq!(5, arr.get_cloned(4).unwrap());
     }
 
     #[test]
@@ -208,13 +213,13 @@ mod tests {
 
         let mut iter = arr.iter();
         for i in 0..5 {
-            assert_eq!(i + 1, iter.next().unwrap());
+            assert_eq!(&(i + 1), iter.next().unwrap());
         }
         assert!(iter.next().is_none());
 
         let mut i: i32 = 0;
         for item in arr.iter() {
-            assert_eq!(i + 1, item);
+            assert_eq!(&(i + 1), item);
             i += 1;
         }
         assert!(iter.next().is_none());
